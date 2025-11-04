@@ -1,6 +1,6 @@
 {
   "name": "@kev1nramos/cookie-consent-react",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "React components and hooks for cookie consent management",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -42,6 +42,9 @@
     "react-dom": ">=16.8.0"
   },
   "packageManager": "pnpm@10.20.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@kev1nramos/cookie-consent-core": "workspace:*",
     "react": "^19.2.0",

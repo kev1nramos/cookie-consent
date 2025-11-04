@@ -1,6 +1,6 @@
 {
   "name": "@kev1nramos/cookie-consent-core",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Framework-agnostic cookie consent management library with GDPR compliance",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -38,6 +38,9 @@
     "directory": "packages/core"
   },
   "packageManager": "pnpm@10.20.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "zod": "^4.1.12"
   },
