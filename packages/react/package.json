@@ -1,0 +1,55 @@
+{
+  "name": "@kev1nramos/cookie-consent-react",
+  "version": "0.1.0",
+  "description": "React components and hooks for cookie consent management",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean --external react --external react-dom",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch --external react --external react-dom",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "cookie",
+    "consent",
+    "react",
+    "gdpr",
+    "banner",
+    "typescript"
+  ],
+  "author": "Kevin Ramos <kevin@kev1nramos.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kev1nramos/cookie-consent",
+    "directory": "packages/react"
+  },
+  "peerDependencies": {
+    "react": ">=16.8.0",
+    "react-dom": ">=16.8.0"
+  },
+  "packageManager": "pnpm@10.20.0",
+  "dependencies": {
+    "@kev1nramos/cookie-consent-core": "workspace:*",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "tsup": "^8.5.0"
+  }
+}
