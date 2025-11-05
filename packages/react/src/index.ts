@@ -6,6 +6,7 @@
 
 export { CookieConsentBanner } from './components/CookieConsentBanner';
 export { useConsentManager } from './hooks/useConsentManager';
+export { useMediaQuery, useIsMobile } from './hooks/useMediaQuery';
 
 export type {
   CookieConsentTheme,

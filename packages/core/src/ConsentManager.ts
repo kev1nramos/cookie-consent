@@ -14,37 +14,123 @@ import type {
   StorageAdapter,
 } from './types';
 import { LocalStorageAdapter } from './storage';
+import {
+  validateConsentState,
+  validateCustomCategories,
+  validateStorageKey,
+  validateDuration,
+  validateVersion,
+} from './validation';
+import {
+  signConsentState,
+  verifyConsentState,
+  getOrCreateSecret,
+  type SignedConsentState,
+} from './crypto';
 
 const DEFAULT_STORAGE_KEY = 'cookie_consent';
 const DEFAULT_CONSENT_VERSION = 1;
 const DEFAULT_CONSENT_DURATION_DAYS = 365;
 
+const RATE_LIMIT_WINDOW_MS = 1000;
+const MAX_CONSENT_CHANGES_PER_WINDOW = 5;
+// Prevent memory leaks from excessive listeners
+const MAX_LISTENERS = 100;
+
 export class ConsentManager {
   private listeners: Set<ConsentChangeListener> = new Set();
   private currentState: ConsentState | null = null;
-  private config: Required<Omit<ConsentManagerConfig, 'onConsentChange' | 'customCategories'>> & {
+  private secret: string = '';
+  private loadingPromise: Promise<ConsentState | null> | null = null;
+  private isInitialized: boolean = false;
+  private lastConsentChangeTimestamps: number[] = [];
+  private config: Required<Omit<ConsentManagerConfig, 'onConsentChange' | 'customCategories' | 'enableIntegrity'>> & {
     customCategories: string[];
     onConsentChange?: ConsentChangeListener;
+    enableIntegrity: boolean;
   };
 
   constructor(config: ConsentManagerConfig = {}) {
+    // Validate storage key
+    const storageKey = config.storageKey ?? DEFAULT_STORAGE_KEY;
+    const storageKeyValidation = validateStorageKey(storageKey);
+    if (!storageKeyValidation.success) {
+      throw new Error(`Invalid storage key: ${storageKeyValidation.error}`);
+    }
+
+    // Validate duration
+    const duration = config.duration ?? DEFAULT_CONSENT_DURATION_DAYS;
+    const durationValidation = validateDuration(duration);
+    if (!durationValidation.success) {
+      throw new Error(`Invalid duration: ${durationValidation.error}`);
+    }
+
+    // Validate version
+    const version = config.version ?? DEFAULT_CONSENT_VERSION;
+    const versionValidation = validateVersion(version);
+    if (!versionValidation.success) {
+      throw new Error(`Invalid version: ${versionValidation.error}`);
+    }
+
+    // Validate custom categories
+    const customCategories = config.customCategories ?? [];
+    const categoriesValidation = validateCustomCategories(customCategories);
+    if (!categoriesValidation.success) {
+      throw new Error(`Invalid custom categories: ${categoriesValidation.error}`);
+    }
+
     this.config = {
-      storageKey: config.storageKey ?? DEFAULT_STORAGE_KEY,
-      duration: config.duration ?? DEFAULT_CONSENT_DURATION_DAYS,
-      version: config.version ?? DEFAULT_CONSENT_VERSION,
+      storageKey: storageKeyValidation.data,
+      duration: durationValidation.data,
+      version: versionValidation.data,
       storage: config.storage ?? new LocalStorageAdapter(),
-      customCategories: config.customCategories ?? [],
+      customCategories: categoriesValidation.data,
       onConsentChange: config.onConsentChange,
       debug: config.debug ?? false,
+      enableIntegrity: config.enableIntegrity ?? true,
     };
+
+    // Initialize secret for integrity verification
+    if (this.config.enableIntegrity) {
+      this.secret = getOrCreateSecret(this.config.storageKey);
+    }
 
     // Register global change listener if provided
     if (this.config.onConsentChange) {
       this.onChange(this.config.onConsentChange);
     }
 
-    // Load initial consent state
-    this.loadConsent();
+    // Load initial consent state (fire and forget - use getConsent() for guaranteed load)
+    this.ensureLoaded();
+  }
+
+  /**
+   * Ensure consent is loaded (prevents race conditions)
+   * Returns the existing promise if already loading
+   */
+  private ensureLoaded(): Promise<ConsentState | null> {
+    if (this.isInitialized) {
+      return Promise.resolve(this.currentState);
+    }
+
+    if (this.loadingPromise) {
+      return this.loadingPromise;
+    }
+
+    this.loadingPromise = this.loadConsent()
+      .then((state) => {
+        this.isInitialized = true;
+        this.loadingPromise = null;
+        return state;
+      })
+      .catch((error) => {
+        console.error('[ConsentManager] Error during initialization:', error);
+        this.isInitialized = true; // Mark as initialized even on error
+        this.loadingPromise = null;
+        return null;
+      });
+
+    return this.loadingPromise;
   }
 
   /**
@@ -54,6 +140,28 @@ export class ConsentManager {
     if (this.config.debug) {
       console.log('[ConsentManager]', ...args);
     }
+  }
+
+  /**
+   * Check if rate limit has been exceeded
+   * Prevents DoS attacks via rapid consent changes
+   */
+  private checkRateLimit(): boolean {
+    const now = Date.now();
+
+    // Remove timestamps outside the current window
+    this.lastConsentChangeTimestamps = this.lastConsentChangeTimestamps.filter(
+      timestamp => now - timestamp < RATE_LIMIT_WINDOW_MS
+    );
+
+    // Check if limit exceeded
+    if (this.lastConsentChangeTimestamps.length >= MAX_CONSENT_CHANGES_PER_WINDOW) {
+      return false; // Rate limit exceeded
+    }
+
+    // Add current timestamp
+    this.lastConsentChangeTimestamps.push(now);
+    return true; // Rate limit OK
   }
 
   /**
@@ -67,14 +175,47 @@ export class ConsentManager {
         return null;
       }
 
-      const state: ConsentState = JSON.parse(stored);
-
-      // Validate structure
-      if (!this.isValidConsentState(state)) {
-        this.log('Invalid consent state structure, clearing');
+      // Parse JSON (may throw)
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(stored);
+      } catch (parseError) {
+        console.error('[ConsentManager] Failed to parse stored consent:', parseError);
         await this.clearConsent();
         return null;
       }
+
+      // Verify integrity signature if enabled
+      let state: ConsentState;
+      if (this.config.enableIntegrity) {
+        const verification = await verifyConsentState(parsed as SignedConsentState, this.secret);
+        if (!verification.valid || !verification.state) {
+          console.error('[ConsentManager] Integrity verification failed - data may have been tampered with');
+          this.log('Integrity check failed, clearing consent');
+          await this.clearConsent();
+          return null;
+        }
+        state = verification.state;
+      } else {
+        // Skip integrity check if disabled
+        const validation = validateConsentState(parsed, this.config.customCategories);
+        if (!validation.success) {
+          console.error('[ConsentManager] Invalid consent state:', validation.error);
+          this.log('Invalid consent state structure, clearing');
+          await this.clearConsent();
+          return null;
+        }
+        state = validation.data as ConsentState;
+      }
+
+      // Additional validation even after signature check (defense in depth)
+      const validation = validateConsentState(state, this.config.customCategories);
+      if (!validation.success) {
+        console.error('[ConsentManager] Invalid consent state after integrity check:', validation.error);
+        await this.clearConsent();
+        return null;
+      }
+      state = validation.data as ConsentState;
 
       // Check if consent has expired
       if (Date.now() > state.expiresAt) {
@@ -102,37 +243,18 @@ export class ConsentManager {
     }
   }
 
-  /**
-   * Validate consent state structure
-   */
-  private isValidConsentState(state: any): state is ConsentState {
-    const hasRequiredFields =
-      typeof state === 'object' &&
-      typeof state.version === 'number' &&
-      typeof state.essential === 'boolean' &&
-      typeof state.analytics === 'boolean' &&
-      typeof state.marketing === 'boolean' &&
-      typeof state.timestamp === 'number' &&
-      typeof state.expiresAt === 'number';
-
-    if (!hasRequiredFields) {
-      return false;
-    }
-
-    // Validate custom categories if any are configured
-    for (const category of this.config.customCategories) {
-      if (typeof state[category] !== 'boolean') {
-        return false;
-      }
-    }
-
-    return true;
-  }
 
   /**
    * Save consent state to storage
    */
   private async saveConsent(preferences: ConsentPreferences): Promise<ConsentState> {
+    // Check rate limit to prevent abuse
+    if (!this.checkRateLimit()) {
+      const error = new Error('Rate limit exceeded: Too many consent changes in a short time');
+      console.error('[ConsentManager]', error.message);
+      throw error;
+    }
+
     const timestamp = Date.now();
     const expiresAt = timestamp + this.config.duration * 24 * 60 * 60 * 1000;
 
@@ -151,14 +273,21 @@ export class ConsentManager {
     }
 
     try {
-      await this.config.storage.setItem(this.config.storageKey, JSON.stringify(state));
-      this.currentState = state;
+      // Sign the state if integrity is enabled
+      let stateToStore: ConsentState | SignedConsentState = state;
+      if (this.config.enableIntegrity) {
+        stateToStore = await signConsentState(state, this.secret);
+        this.log('Signed consent state with integrity signature');
+      }
+
+      await this.config.storage.setItem(this.config.storageKey, JSON.stringify(stateToStore));
+      this.currentState = state; // Store unsigned state in memory
       this.log('Saved consent state:', state);
       this.notifyListeners(state);
       return state;
     } catch (error) {
       console.error('[ConsentManager] Error saving consent:', error);
-      return state;
+      throw error; // Throw instead of silently returning to surface the error
     }
   }
 
@@ -190,11 +319,10 @@ export class ConsentManager {
 
   /**
    * Get current consent state
+   * Waits for initialization to complete if still loading
    */
   public async getConsent(): Promise<ConsentState | null> {
-    if (!this.currentState) {
-      this.currentState = await this.loadConsent();
-    }
+    await this.ensureLoaded();
     return this.currentState;
   }
 
@@ -209,8 +337,8 @@ export class ConsentManager {
    * Check if user has made a consent decision
    */
   public async hasConsent(): Promise<boolean> {
-    const consent = await this.getConsent();
-    return consent !== null;
+    await this.ensureLoaded();
+    return this.currentState !== null;
   }
 
   /**
@@ -224,9 +352,9 @@ export class ConsentManager {
    * Check if a specific category is consented
    */
   public async hasConsentFor(category: string): Promise<boolean> {
-    const consent = await this.getConsent();
-    if (!consent) return false;
-    return consent[category] === true;
+    await this.ensureLoaded();
+    if (!this.currentState) return false;
+    return this.currentState[category] === true;
   }
 
   /**
@@ -308,6 +436,14 @@ export class ConsentManager {
    * @returns Unsubscribe function
    */
   public onChange(listener: ConsentChangeListener): () => void {
+    // Check listener limit to prevent memory leaks
+    if (this.listeners.size >= MAX_LISTENERS) {
+      console.warn(
+        `[ConsentManager] Maximum listener limit (${MAX_LISTENERS}) reached. ` +
+        'This may indicate a memory leak. Please ensure listeners are properly unsubscribed.'
+      );
+    }
+
     this.listeners.add(listener);
 
     // Immediately notify with current state if it exists
@@ -323,6 +459,21 @@ export class ConsentManager {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  /**
+   * Remove all listeners (useful for cleanup)
+   */
+  public removeAllListeners(): void {
+    this.listeners.clear();
+    this.log('All listeners removed');
+  }
+
+  /**
+   * Get the number of active listeners (useful for debugging)
+   */
+  public getListenerCount(): number {
+    return this.listeners.size;
   }
 
   /**
