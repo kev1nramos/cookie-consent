@@ -71,6 +71,12 @@ export interface ConsentManagerConfig {
    * Enable debug logging (default: false)
    */
   debug?: boolean;
+
+  /**
+   * Enable integrity verification using HMAC signatures (default: true)
+   * Prevents tampering with consent data in storage
+   */
+  enableIntegrity?: boolean;
 }
 
 /**

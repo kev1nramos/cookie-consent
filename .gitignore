@@ -1,11 +1,57 @@
+# Dependencies
 node_modules
+
+# Build outputs
 .turbo
 dist
 build
-.DS_Store
-*.log
+lib
+out
+
+# Environment and local files
 .env
 .env.local
+.env.*.local
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
 coverage
-*.tsbuildinfo
+.nyc_output
+junit.xml
+
+# Cache and temporary files
 .cache
+*.tsbuildinfo
+.temp
+.tmp
+
+# IDE and editor files
+.idea
+.vscode
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# Project specific
+.claude
+.roadmap
+docs
+
+# Security and internal reviews
+**/AUDIT_REVIEW.md
+**/INTERNAL_REVIEW.md
+**/*-audit.md
+**/*-review.md
+!SECURITY.md
+
+# Misc
+.eslintcache
+.npm
+.yarn-integrity

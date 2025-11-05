@@ -8,10 +8,11 @@ Production-ready, GDPR-compliant cookie consent library for Next.js and React ap
 - 🚀 **Framework Agnostic Core** - Works with any JavaScript framework
 - ⚛️ **React Components** - Ready-to-use components and hooks
 - 🔒 **GDPR/CCPA Compliant** - Built-in consent management and withdrawal
+- 🛡️ **Security First** - HMAC integrity verification, XSS protection, rate limiting
 - 💾 **Pluggable Storage** - LocalStorage, Cookie, or custom adapters
 - 🌍 **i18n Ready** - Bring your own translations
 - ⚡ **Cloudflare Workers Compatible** - No Node.js-specific APIs
-- 📱 **Fully Responsive** - Works on all devices
+- 📱 **Fully Responsive** - Works on all devices with SSR support
 - ♿ **Accessible** - WCAG 2.1 AA compliant
 - 📦 **Tree-shakeable** - Only import what you need
 - 🎯 **TypeScript First** - Full type safety
@@ -231,6 +232,43 @@ const manager = new ConsentManager({
 });
 ```
 
+## Security
+
+This library is built with security as a top priority. See [SECURITY.md](./SECURITY.md) for comprehensive security documentation.
+
+### Key Security Features
+
+- **Prototype Pollution Protection** - All stored data is validated with Zod schemas
+- **Cookie Injection Prevention** - Strict input validation and sanitization
+- **HMAC Integrity Verification** - Detect tampering with consent data (enabled by default)
+- **Rate Limiting** - Prevent DoS attacks via rapid consent changes
+- **Memory Leak Prevention** - Automatic listener management and cleanup
+- **XSS Protection** - No use of `eval()` or `innerHTML`, tamper detection
+- **SSR Safe** - Proper handling of browser APIs with hydration support
+
+### Secure Configuration Example
+
+```typescript
+import { ConsentManager, CookieStorageAdapter } from '@kev1nramos/cookie-consent-core';
+
+const manager = new ConsentManager({
+  storage: new CookieStorageAdapter({
+    secure: true,      // Only send over HTTPS
+    sameSite: 'Strict', // CSRF protection
+  }),
+  enableIntegrity: true, // HMAC signatures (default: true)
+  duration: 90,          // Shorter duration = better security
+  debug: false,          // Disable in production
+});
+```
+
+**Read the full [Security Policy](./SECURITY.md) for:**
+- Detailed security features and mitigations
+- Best practices for production deployments
+- Known limitations (e.g., HttpOnly cookies)
+- GDPR compliance guidelines
+- How to report security vulnerabilities
+
 ## Cloudflare Workers Support
 
 The library is fully compatible with Cloudflare Workers and Pages:
@@ -240,7 +278,10 @@ import { ConsentManager, CookieStorageAdapter } from '@kev1nramos/cookie-consent
 
 // Use cookie storage instead of localStorage
 const manager = new ConsentManager({
-  storage: new CookieStorageAdapter(),
+  storage: new CookieStorageAdapter({
+    secure: true,
+    sameSite: 'Lax',
+  }),
 });
 ```
 

@@ -8,6 +8,7 @@ import React, { useState, useEffect } from 'react';
 import type { CookieConsentBannerProps } from '../types';
 import { defaultTheme } from '../types';
 import { useConsentManager } from '../hooks/useConsentManager';
+import { useIsMobile } from '../hooks/useMediaQuery';
 
 export function CookieConsentBanner({
   theme: userTheme,
@@ -25,6 +26,7 @@ export function CookieConsentBanner({
   const [showBanner, setShowBanner] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const { hasConsent, acceptAll, rejectAll } = useConsentManager(config);
+  const isMobile = useIsMobile(640);
 
   // Merge user theme with defaults
   const theme = {
@@ -237,7 +239,7 @@ export function CookieConsentBanner({
             <div
               style={{
                 display: 'flex',
-                flexDirection: window.innerWidth < 640 ? 'column' : 'row',
+                flexDirection: isMobile ? 'column' : 'row',
                 gap: '0.75rem',
                 flexShrink: 0,
               }}

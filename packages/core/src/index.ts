@@ -23,3 +23,20 @@ export {
 } from './storage';
 
 export type { CookieStorageOptions } from './storage';
+
+export {
+  validateConsentState,
+  validateCustomCategories,
+  validateStorageKey,
+  validateDuration,
+  validateVersion,
+} from './validation';
+
+export {
+  signConsentState,
+  verifyConsentState,
+  generateSignature,
+  verifySignature,
+  getOrCreateSecret,
+  type SignedConsentState,
+} from './crypto';

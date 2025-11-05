@@ -4,6 +4,7 @@
  */
 
 import type { StorageAdapter } from '../types';
+import { validateStorageKey } from '../validation';
 
 export interface CookieStorageOptions {
   /**
@@ -44,11 +45,18 @@ export class CookieStorageAdapter implements StorageAdapter {
       return null;
     }
 
+    // Validate key to prevent injection attacks
+    const keyValidation = validateStorageKey(key);
+    if (!keyValidation.success) {
+      console.error('[CookieStorageAdapter] Invalid cookie key:', keyValidation.error);
+      return null;
+    }
+
     try {
       const cookies = document.cookie.split(';');
       for (const cookie of cookies) {
         const [name, ...valueParts] = cookie.trim().split('=');
-        if (name === key) {
+        if (name === keyValidation.data) {
           return decodeURIComponent(valueParts.join('='));
         }
       }
@@ -64,9 +72,16 @@ export class CookieStorageAdapter implements StorageAdapter {
       return;
     }
 
+    // Validate key to prevent cookie injection attacks
+    const keyValidation = validateStorageKey(key);
+    if (!keyValidation.success) {
+      console.error('[CookieStorageAdapter] Invalid cookie key:', keyValidation.error);
+      throw new Error(`Invalid cookie key: ${keyValidation.error}`);
+    }
+
     try {
       const encodedValue = encodeURIComponent(value);
-      let cookieString = `${key}=${encodedValue}`;
+      let cookieString = `${keyValidation.data}=${encodedValue}`;
 
       // Add path
       cookieString += `; path=${this.options.path}`;
@@ -90,6 +105,7 @@ export class CookieStorageAdapter implements StorageAdapter {
       document.cookie = cookieString;
     } catch (error) {
       console.error('[CookieStorageAdapter] Error writing cookie:', error);
+      throw error;
     }
   }
 
@@ -98,8 +114,15 @@ export class CookieStorageAdapter implements StorageAdapter {
       return;
     }
 
+    // Validate key to prevent injection attacks
+    const keyValidation = validateStorageKey(key);
+    if (!keyValidation.success) {
+      console.error('[CookieStorageAdapter] Invalid cookie key:', keyValidation.error);
+      return;
+    }
+
     try {
-      let cookieString = `${key}=; max-age=0; path=${this.options.path}`;
+      let cookieString = `${keyValidation.data}=; max-age=0; path=${this.options.path}`;
 
       if (this.options.domain) {
         cookieString += `; domain=${this.options.domain}`;
